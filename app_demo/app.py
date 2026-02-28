@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 from pathlib import Path
+import random
 from typing import Any
 
 import pandas as pd
@@ -148,6 +149,250 @@ def build_query_cache_key(function_name: str, params: dict[str, str]) -> str:
     return f"{function_name}|{normalized_params}"
 
 
+def build_demo_daily_series(symbol: str, days: int, base_price: float, scale: float) -> dict[str, dict[str, str]]:
+    seed = sum(ord(char) for char in symbol)
+    rng = random.Random(seed)
+    today = datetime.utcnow().date()
+    current_price = base_price
+    rows: dict[str, dict[str, str]] = {}
+
+    for index in range(days):
+        date_value = today - timedelta(days=(days - index))
+        trend = ((index / max(days, 1)) - 0.5) * (0.5 * scale)
+        open_price = max(0.01, current_price + rng.uniform(-0.8, 0.8) * scale)
+        close_price = max(0.01, open_price + rng.uniform(-1.4, 1.4) * scale + trend)
+        high_price = max(open_price, close_price) + abs(rng.uniform(0.2, 1.2) * scale)
+        low_price = max(0.01, min(open_price, close_price) - abs(rng.uniform(0.2, 1.2) * scale))
+        volume = int(900_000 + rng.random() * 3_500_000 + index * 2_000)
+
+        rows[date_value.isoformat()] = {
+            "1. open": f"{open_price:.4f}",
+            "2. high": f"{high_price:.4f}",
+            "3. low": f"{low_price:.4f}",
+            "4. close": f"{close_price:.4f}",
+            "5. volume": str(volume),
+        }
+        current_price = close_price
+    return rows
+
+
+def build_demo_report_dates(interval: str, count: int) -> list[str]:
+    today = datetime.utcnow().date()
+    if interval == "annual":
+        return [f"{today.year - index}-12-31" for index in range(count)]
+    return [(today - timedelta(days=(index * 90))).isoformat() for index in range(count)]
+
+
+def build_demo_payload(function_name: str, params: dict[str, str]) -> dict[str, Any] | None:
+    symbol = params.get("symbol", "DEMO").upper()
+
+    if function_name == "OVERVIEW":
+        return {
+            "Symbol": symbol,
+            "Name": f"{symbol} Demo Corporation",
+            "Sector": "TECHNOLOGY",
+            "MarketCapitalization": "145000000000",
+            "Description": (
+                f"{symbol} Demo Corporation (dati inventati) e' usata esclusivamente per "
+                "dimostrazione del funzionamento dell'app quando il limite giornaliero API "
+                "e' stato superato."
+            ),
+        }
+
+    if function_name == "TIME_SERIES_DAILY":
+        base = 80 + (sum(ord(char) for char in symbol) % 180)
+        return {"Time Series (Daily)": build_demo_daily_series(symbol, days=220, base_price=base, scale=1.0)}
+
+    if function_name == "SMA":
+        period = max(int(params.get("time_period", "20")), 2)
+        series = build_demo_daily_series(symbol, days=240, base_price=120, scale=1.0)
+        df = pd.DataFrame.from_dict(series, orient="index")
+        df["4. close"] = pd.to_numeric(df["4. close"], errors="coerce")
+        df = df.dropna()
+        sma = df["4. close"].rolling(period).mean().dropna()
+        ta_rows = {str(index): {"SMA": f"{value:.4f}"} for index, value in sma.items()}
+        return {"Technical Analysis: SMA": ta_rows}
+
+    if function_name == "NEWS_SENTIMENT":
+        seed = sum(ord(char) for char in symbol)
+        rng = random.Random(seed)
+        now = datetime.utcnow()
+        total_items = min(max(int(params.get("limit", "20")), 1), 20)
+        feed = []
+        for index in range(total_items):
+            score = round(rng.uniform(-0.75, 0.75), 3)
+            if score > 0.2:
+                label = "Bullish"
+            elif score < -0.2:
+                label = "Bearish"
+            else:
+                label = "Neutral"
+            published = (now - timedelta(hours=index * 6)).strftime("%Y%m%dT%H%M%S")
+            feed.append(
+                {
+                    "time_published": published,
+                    "source": "Demo News Wire",
+                    "title": f"{symbol}: notizia dimostrativa #{index + 1}",
+                    "overall_sentiment_label": label,
+                    "overall_sentiment_score": str(score),
+                    "url": "https://example.com/demo-news",
+                }
+            )
+        return {"feed": feed}
+
+    if function_name == "FX_DAILY":
+        from_symbol = params.get("from_symbol", "EUR").upper()
+        to_symbol = params.get("to_symbol", "USD").upper()
+        pair = f"{from_symbol}{to_symbol}"
+        raw_rows = build_demo_daily_series(pair, days=220, base_price=1.08, scale=0.012)
+        fx_rows = {
+            date_key: {
+                "1. open": row["1. open"],
+                "2. high": row["2. high"],
+                "3. low": row["3. low"],
+                "4. close": row["4. close"],
+            }
+            for date_key, row in raw_rows.items()
+        }
+        return {"Time Series FX (Daily)": fx_rows}
+
+    if function_name == "REAL_GDP":
+        interval = params.get("interval", "annual")
+        points = 40 if interval == "quarterly" else 25
+        today = datetime.utcnow().date()
+        data = []
+        for index in range(points):
+            if interval == "annual":
+                date_value = f"{today.year - (points - index)}-01-01"
+            else:
+                date_value = (today - timedelta(days=(points - index) * 90)).isoformat()
+            value = 5500 + (index * 370) + (index % 4) * 42
+            data.append({"date": date_value, "value": f"{value:.2f}"})
+        return {"data": data}
+
+    if function_name == "TOP_GAINERS_LOSERS":
+        return {
+            "top_gainers": [
+                {"ticker": "NVDA", "price": "1023.44", "change_amount": "61.22", "change_percentage": "6.36%", "volume": "58900231"},
+                {"ticker": "SMCI", "price": "912.80", "change_amount": "42.65", "change_percentage": "4.90%", "volume": "22344112"},
+                {"ticker": "TSLA", "price": "267.21", "change_amount": "10.14", "change_percentage": "3.95%", "volume": "86441022"},
+            ],
+            "top_losers": [
+                {"ticker": "INTC", "price": "31.48", "change_amount": "-1.88", "change_percentage": "-5.64%", "volume": "97311220"},
+                {"ticker": "PYPL", "price": "54.66", "change_amount": "-2.12", "change_percentage": "-3.73%", "volume": "33190880"},
+                {"ticker": "BABA", "price": "74.39", "change_amount": "-2.44", "change_percentage": "-3.18%", "volume": "28874111"},
+            ],
+            "most_actively_traded": [
+                {"ticker": "AAPL", "price": "213.25", "change_amount": "1.20", "change_percentage": "0.57%", "volume": "121331002"},
+                {"ticker": "AMD", "price": "175.08", "change_amount": "2.51", "change_percentage": "1.45%", "volume": "104482719"},
+                {"ticker": "AMZN", "price": "195.44", "change_amount": "0.96", "change_percentage": "0.49%", "volume": "91220177"},
+            ],
+        }
+
+    if function_name in {"INCOME_STATEMENT", "BALANCE_SHEET", "CASH_FLOW"}:
+        annual_dates = build_demo_report_dates("annual", 6)
+        quarterly_dates = build_demo_report_dates("quarterly", 10)
+        annual_reports: list[dict[str, str]] = []
+        quarterly_reports: list[dict[str, str]] = []
+
+        for index, date_value in enumerate(annual_dates):
+            revenue = 95_000_000_000 - (index * 4_500_000_000)
+            assets = 260_000_000_000 - (index * 7_500_000_000)
+            cash_flow = 21_000_000_000 - (index * 1_200_000_000)
+            if function_name == "INCOME_STATEMENT":
+                annual_reports.append(
+                    {
+                        "fiscalDateEnding": date_value,
+                        "reportedCurrency": "USD",
+                        "totalRevenue": str(revenue),
+                        "grossProfit": str(int(revenue * 0.53)),
+                        "operatingIncome": str(int(revenue * 0.24)),
+                        "netIncome": str(int(revenue * 0.18)),
+                        "ebitda": str(int(revenue * 0.29)),
+                    }
+                )
+            elif function_name == "BALANCE_SHEET":
+                annual_reports.append(
+                    {
+                        "fiscalDateEnding": date_value,
+                        "reportedCurrency": "USD",
+                        "totalAssets": str(assets),
+                        "totalLiabilities": str(int(assets * 0.58)),
+                        "totalShareholderEquity": str(int(assets * 0.42)),
+                        "cashAndCashEquivalentsAtCarryingValue": str(int(assets * 0.09)),
+                        "shortLongTermDebtTotal": str(int(assets * 0.17)),
+                    }
+                )
+            else:
+                annual_reports.append(
+                    {
+                        "fiscalDateEnding": date_value,
+                        "reportedCurrency": "USD",
+                        "operatingCashflow": str(cash_flow),
+                        "cashflowFromInvestment": str(int(-cash_flow * 0.38)),
+                        "cashflowFromFinancing": str(int(-cash_flow * 0.27)),
+                        "capitalExpenditures": str(int(-cash_flow * 0.22)),
+                        "dividendPayout": str(int(cash_flow * 0.12)),
+                    }
+                )
+
+        for index, date_value in enumerate(quarterly_dates):
+            revenue = 24_000_000_000 - (index * 650_000_000)
+            assets = 265_000_000_000 - (index * 2_100_000_000)
+            cash_flow = 5_700_000_000 - (index * 180_000_000)
+            if function_name == "INCOME_STATEMENT":
+                quarterly_reports.append(
+                    {
+                        "fiscalDateEnding": date_value,
+                        "reportedCurrency": "USD",
+                        "totalRevenue": str(revenue),
+                        "grossProfit": str(int(revenue * 0.52)),
+                        "operatingIncome": str(int(revenue * 0.23)),
+                        "netIncome": str(int(revenue * 0.17)),
+                        "ebitda": str(int(revenue * 0.28)),
+                    }
+                )
+            elif function_name == "BALANCE_SHEET":
+                quarterly_reports.append(
+                    {
+                        "fiscalDateEnding": date_value,
+                        "reportedCurrency": "USD",
+                        "totalAssets": str(assets),
+                        "totalLiabilities": str(int(assets * 0.57)),
+                        "totalShareholderEquity": str(int(assets * 0.43)),
+                        "cashAndCashEquivalentsAtCarryingValue": str(int(assets * 0.10)),
+                        "shortLongTermDebtTotal": str(int(assets * 0.18)),
+                    }
+                )
+            else:
+                quarterly_reports.append(
+                    {
+                        "fiscalDateEnding": date_value,
+                        "reportedCurrency": "USD",
+                        "operatingCashflow": str(cash_flow),
+                        "cashflowFromInvestment": str(int(-cash_flow * 0.36)),
+                        "cashflowFromFinancing": str(int(-cash_flow * 0.25)),
+                        "capitalExpenditures": str(int(-cash_flow * 0.20)),
+                        "dividendPayout": str(int(cash_flow * 0.10)),
+                    }
+                )
+
+        return {"symbol": symbol, "annualReports": annual_reports, "quarterlyReports": quarterly_reports}
+
+    if function_name == "EARNINGS":
+        annual_dates = build_demo_report_dates("annual", 8)
+        quarterly_dates = build_demo_report_dates("quarterly", 12)
+        annual = []
+        quarterly = []
+        for index, date_value in enumerate(annual_dates):
+            annual.append({"fiscalDateEnding": date_value, "reportedEPS": f"{7.8 - index * 0.22:.2f}"})
+        for index, date_value in enumerate(quarterly_dates):
+            quarterly.append({"fiscalDateEnding": date_value, "reportedEPS": f"{2.1 - index * 0.06:.2f}"})
+        return {"symbol": symbol, "annualEarnings": annual, "quarterlyEarnings": quarterly}
+
+    return None
+
+
 def safe_query(function_name: str, **params: str) -> dict[str, Any] | None:
     fallback_cache = st.session_state.setdefault("query_fallback_cache", {})
     cache_key = build_query_cache_key(function_name, params)
@@ -166,9 +411,20 @@ def safe_query(function_name: str, **params: str) -> dict[str, Any] | None:
                     "Verranno utilizzati, se presenti, i dati in cache."
                 )
                 return fallback_cache[cache_key]
+            if st.session_state.get("use_demo_data_on_rate_limit", False):
+                demo_payload = build_demo_payload(function_name, params)
+                if demo_payload is not None:
+                    fallback_cache[cache_key] = demo_payload
+                    st.warning(
+                        "Limite giornaliero di richieste Alpha Vantage superato. "
+                        "Non essendoci cache, vengono usati dati demo inventati "
+                        "solo per dimostrazione."
+                    )
+                    return demo_payload
             st.warning(
                 "Limite giornaliero di richieste Alpha Vantage superato. "
-                "Non ci sono dati in cache per questa richiesta."
+                "Non ci sono dati in cache per questa richiesta. "
+                "Puoi attivare l'opzione in sidebar per usare dati demo."
             )
         else:
             st.warning(
@@ -183,7 +439,7 @@ def safe_query(function_name: str, **params: str) -> dict[str, Any] | None:
 def render_home_section() -> None:
     st.subheader("Home: obiettivo della demo")
     st.write(
-        "Questa demo nasce per mostrare ai soci un caso concreto: usare Alpha Vantage come "
+        "Questa demo nasce per mostrare ai collaboratori un caso concreto: usare Alpha Vantage come "
         "strato dati finanziario standard, combinabile con dashboard operative e componenti AI."
     )
 
@@ -495,6 +751,13 @@ def main() -> None:
         symbol = selected_ticker
     else:
         symbol = ""
+
+    st.sidebar.checkbox(
+        "Usa dati demo se limite superato",
+        key="use_demo_data_on_rate_limit",
+        help="Se superi il limite giornaliero e non ci sono dati in cache, "
+        "l'app usera' dati inventati solo per dimostrazione.",
+    )
 
     period = st.sidebar.slider("SMA period", min_value=5, max_value=60, value=20, step=1)
     from_symbol = st.sidebar.text_input("FX from", value="EUR").strip().upper()
