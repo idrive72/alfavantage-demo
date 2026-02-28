@@ -2,10 +2,13 @@
 
 Questa app mostra in modo pratico cosa puoi fare con i dati Alpha Vantage:
 
+- Home: spiegazione progetto, stato implementazione e roadmap Alpha Vantage/AI/MCP
 - Azioni: overview societaria + serie storica prezzi/volumi
 - Indicatori tecnici: SMA calcolata via API
 - News & sentiment: feed notizie con score di sentiment
 - Forex + macroeconomia: serie FX e US Real GDP
+- Market movers: top gainers, top losers, most actively traded
+- Fondamentali: income statement, balance sheet, cash flow ed earnings (EPS)
 
 ## Requisiti
 

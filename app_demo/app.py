@@ -44,6 +44,22 @@ def normalize_column_name(column: str) -> str:
     return value.lower()
 
 
+def format_human_number(value: Any) -> str:
+    num = pd.to_numeric(value, errors="coerce")
+    if pd.isna(num):
+        return "-"
+    num = float(num)
+    if abs(num) >= 1_000_000_000_000:
+        return f"{num / 1_000_000_000_000:.2f}T"
+    if abs(num) >= 1_000_000_000:
+        return f"{num / 1_000_000_000:.2f}B"
+    if abs(num) >= 1_000_000:
+        return f"{num / 1_000_000:.2f}M"
+    if abs(num) >= 1_000:
+        return f"{num / 1_000:.2f}K"
+    return f"{num:.2f}"
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def av_query(function_name: str, **params: str) -> dict[str, Any]:
     query = {"function": function_name, "apikey": load_api_key(), **params}
@@ -95,6 +111,26 @@ def technical_to_df(payload: dict[str, Any]) -> pd.DataFrame:
     return df
 
 
+def statement_payload_to_df(payload: dict[str, Any], report_scope: str) -> pd.DataFrame:
+    key = "annualReports" if report_scope == "annual" else "quarterlyReports"
+    df = pd.DataFrame(payload.get(key, []))
+    if df.empty:
+        return df
+
+    if "fiscalDateEnding" in df.columns:
+        df["fiscalDateEnding"] = pd.to_datetime(df["fiscalDateEnding"], errors="coerce")
+
+    numeric_exclusions = {"fiscalDateEnding", "reportedCurrency"}
+    for col in df.columns:
+        if col in numeric_exclusions:
+            continue
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    if "fiscalDateEnding" in df.columns:
+        df = df.sort_values("fiscalDateEnding", ascending=False)
+    return df
+
+
 def safe_query(function_name: str, **params: str) -> dict[str, Any] | None:
     try:
         return av_query(function_name, **params)
@@ -110,6 +146,52 @@ def safe_query(function_name: str, **params: str) -> dict[str, Any] | None:
     return None
 
 
+def render_home_section() -> None:
+    st.subheader("Home: obiettivo della demo")
+    st.write(
+        "Questa demo nasce per mostrare ai soci un caso concreto: usare Alpha Vantage come "
+        "strato dati finanziario standard, combinabile con dashboard operative e componenti AI."
+    )
+
+    st.markdown("### Cosa e' implementato oggi")
+    st.markdown(
+        "- Azioni: overview aziendale, prezzo daily e volumi\n"
+        "- Indicatori tecnici: SMA con periodo configurabile\n"
+        "- News & sentiment: feed con punteggio sentiment\n"
+        "- FX + macroeconomia: serie EUR/USD e US Real GDP\n"
+        "- Market movers: top gainers, top losers, most actively traded\n"
+        "- Fondamentali: income statement, balance sheet, cash flow + trend EPS\n"
+        "- UX demo: ticker esempio a tendina + inserimento manuale"
+    )
+
+    st.markdown("### Cosa non e' ancora implementato (ma disponibile su Alpha Vantage)")
+    st.markdown(
+        "- Dati azionari avanzati: intraday, weekly/monthly, adjusted, bulk quotes\n"
+        "- Opzioni USA: chain realtime e storico opzioni\n"
+        "- Altri fondamentali: earnings calendar, IPO calendar, listing status\n"
+        "- Macro estesa: CPI, inflazione, treasury yields, fed funds, unemployment\n"
+        "- Commodities: energia, metalli, agricoli\n"
+        "- Crypto completa: intraday + cross di conversione\n"
+        "- Indicatori tecnici extra: RSI, MACD, BBANDS, ATR, OBV e molti altri"
+    )
+
+    st.markdown("### Potenziale AI + MCP")
+    st.markdown(
+        "- Alpha Vantage espone anche un MCP server ufficiale: un agente AI puo' interrogare "
+        "direttamente dataset finanziari senza scrivere integrazioni custom endpoint per endpoint.\n"
+        "- Possibile estensione: copilota interno che risponde a domande del management "
+        "(trend ricavi, anomalia volumi, sentiment per ticker, scenario macro), con output "
+        "tracciabile su dati aggiornati.\n"
+        "- Possibile integrazione operativa: trigger automatici (news negative + rottura SMA + "
+        "shock macro) per allerta in dashboard o canali collaboration."
+    )
+
+    st.info(
+        "Questa app e' una base di studio: dimostra il flusso dati end-to-end e la scalabilita' "
+        "verso use case AI/agentic."
+    )
+
+
 def render_stock_section(symbol: str) -> None:
     st.subheader("Azioni: overview + serie storica")
     overview = safe_query("OVERVIEW", symbol=symbol)
@@ -118,7 +200,7 @@ def render_stock_section(symbol: str) -> None:
         c1.metric("Symbol", overview.get("Symbol", "-"))
         c2.metric("Name", overview.get("Name", "-"))
         c3.metric("Sector", overview.get("Sector", "-"))
-        c4.metric("Market Cap", overview.get("MarketCapitalization", "-"))
+        c4.metric("Market Cap", format_human_number(overview.get("MarketCapitalization", "-")))
         st.caption(overview.get("Description", "")[:500] + "...")
     else:
         st.info("Overview non disponibile per questo simbolo.")
@@ -237,12 +319,125 @@ def render_fx_macro_section(from_symbol: str, to_symbol: str, gdp_interval: str)
     st.caption(f"Ultimo valore: {latest['value']:.2f} ({latest['date'].date()})")
 
 
+def render_market_movers_section() -> None:
+    st.subheader("Market Movers: top gainers, losers e titoli attivi")
+    payload = safe_query("TOP_GAINERS_LOSERS")
+    if not payload:
+        return
+
+    blocks = [
+        ("Top Gainers", "top_gainers"),
+        ("Top Losers", "top_losers"),
+        ("Most Actively Traded", "most_actively_traded"),
+    ]
+    preferred_cols = ["ticker", "price", "change_amount", "change_percentage", "volume"]
+
+    for title, key in blocks:
+        rows = payload.get(key, [])
+        st.markdown(f"**{title}**")
+        if not rows:
+            st.info(f"{title}: dati non disponibili.")
+            continue
+
+        df = pd.DataFrame(rows)
+        cols = [col for col in preferred_cols if col in df.columns]
+        if cols:
+            df = df[cols]
+        st.dataframe(df.head(20), use_container_width=True, hide_index=True)
+
+
+def render_statement_block(title: str, df: pd.DataFrame, metrics: list[str]) -> None:
+    st.markdown(f"**{title}**")
+    if df.empty:
+        st.info(f"{title}: dati non disponibili.")
+        return
+
+    available_metrics = [metric for metric in metrics if metric in df.columns]
+    latest = df.iloc[0]
+    top_metrics = available_metrics[:4]
+    if top_metrics:
+        cols = st.columns(len(top_metrics))
+        for idx, metric in enumerate(top_metrics):
+            cols[idx].metric(metric, format_human_number(latest.get(metric)))
+
+    table_cols = ["fiscalDateEnding"]
+    if "reportedCurrency" in df.columns:
+        table_cols.append("reportedCurrency")
+    table_cols.extend(available_metrics[:6])
+    table_cols = [col for col in table_cols if col in df.columns]
+    st.dataframe(df[table_cols].head(8), use_container_width=True, hide_index=True)
+
+
+def render_financials_section(symbol: str, report_scope: str) -> None:
+    st.subheader("Fondamentali: Income Statement, Balance Sheet, Cash Flow, Earnings")
+    income_payload = safe_query("INCOME_STATEMENT", symbol=symbol)
+    balance_payload = safe_query("BALANCE_SHEET", symbol=symbol)
+    cash_payload = safe_query("CASH_FLOW", symbol=symbol)
+    earnings_payload = safe_query("EARNINGS", symbol=symbol)
+
+    if earnings_payload:
+        earnings_key = "annualEarnings" if report_scope == "annual" else "quarterlyEarnings"
+        earnings_df = pd.DataFrame(earnings_payload.get(earnings_key, []))
+        if (
+            not earnings_df.empty
+            and "fiscalDateEnding" in earnings_df.columns
+            and "reportedEPS" in earnings_df.columns
+        ):
+            earnings_df["fiscalDateEnding"] = pd.to_datetime(
+                earnings_df["fiscalDateEnding"], errors="coerce"
+            )
+            earnings_df["reportedEPS"] = pd.to_numeric(earnings_df["reportedEPS"], errors="coerce")
+            earnings_df = earnings_df.dropna().sort_values("fiscalDateEnding")
+            if not earnings_df.empty:
+                st.markdown("**Earnings (EPS)**")
+                st.line_chart(
+                    earnings_df.set_index("fiscalDateEnding")[["reportedEPS"]].tail(20),
+                    height=250,
+                )
+
+    income_df = (
+        statement_payload_to_df(income_payload, report_scope) if income_payload else pd.DataFrame()
+    )
+    balance_df = (
+        statement_payload_to_df(balance_payload, report_scope) if balance_payload else pd.DataFrame()
+    )
+    cash_df = statement_payload_to_df(cash_payload, report_scope) if cash_payload else pd.DataFrame()
+
+    render_statement_block(
+        "Income Statement",
+        income_df,
+        ["totalRevenue", "grossProfit", "operatingIncome", "netIncome", "ebitda"],
+    )
+    render_statement_block(
+        "Balance Sheet",
+        balance_df,
+        [
+            "totalAssets",
+            "totalLiabilities",
+            "totalShareholderEquity",
+            "cashAndCashEquivalentsAtCarryingValue",
+            "shortLongTermDebtTotal",
+        ],
+    )
+    render_statement_block(
+        "Cash Flow",
+        cash_df,
+        [
+            "operatingCashflow",
+            "cashflowFromInvestment",
+            "cashflowFromFinancing",
+            "capitalExpenditures",
+            "dividendPayout",
+        ],
+    )
+
+
 def main() -> None:
     st.set_page_config(page_title="Demo Alpha Vantage", layout="wide")
     st.title("Demo Alpha Vantage")
     st.write(
-        "App dimostrativa multi-dataset (azioni, indicatori tecnici, news, FX, macro) "
-        "costruita sulle API Alpha Vantage."
+        "Progetto studio: panoramica pratica delle API Alpha Vantage e delle estensioni "
+        "possibili con AI agentica e MCP."
     )
     st.caption(
         "Nota: il piano free di Alpha Vantage puo' avere limiti di chiamata giornalieri. "
@@ -252,7 +447,7 @@ def main() -> None:
     try:
         _ = load_api_key()
     except Exception as exc:
-        st.error(f"Impossibile caricare api_key.txt: {exc}")
+        st.error(f"Impossibile caricare API key: {exc}")
         st.stop()
 
     st.sidebar.header("Controlli")
@@ -271,9 +466,18 @@ def main() -> None:
     from_symbol = st.sidebar.text_input("FX from", value="EUR").strip().upper()
     to_symbol = st.sidebar.text_input("FX to", value="USD").strip().upper()
     gdp_interval = st.sidebar.selectbox("GDP interval", options=["annual", "quarterly"], index=0)
+    report_scope = st.sidebar.selectbox("Bilancio interval", options=["annual", "quarterly"], index=0)
     section = st.sidebar.radio(
         "Sezione demo",
-        options=["Azioni", "Indicatori", "News", "FX + Macro"],
+        options=[
+            "Home",
+            "Azioni",
+            "Indicatori",
+            "News",
+            "FX + Macro",
+            "Market Movers",
+            "Bilancio",
+        ],
         index=0,
     )
 
@@ -281,18 +485,25 @@ def main() -> None:
         st.cache_data.clear()
         st.rerun()
 
-    if not symbol:
-        st.warning("Inserisci un ticker valido.")
+    sections_requiring_symbol = {"Azioni", "Indicatori", "News", "Bilancio"}
+    if section in sections_requiring_symbol and not symbol:
+        st.warning("Inserisci un ticker valido o selezionane uno di esempio.")
         st.stop()
 
-    if section == "Azioni":
+    if section == "Home":
+        render_home_section()
+    elif section == "Azioni":
         render_stock_section(symbol)
     elif section == "Indicatori":
         render_indicator_section(symbol, period)
     elif section == "News":
         render_news_section(symbol)
-    else:
+    elif section == "FX + Macro":
         render_fx_macro_section(from_symbol, to_symbol, gdp_interval)
+    elif section == "Market Movers":
+        render_market_movers_section()
+    else:
+        render_financials_section(symbol, report_scope)
 
 
 if __name__ == "__main__":
