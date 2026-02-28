@@ -131,16 +131,50 @@ def statement_payload_to_df(payload: dict[str, Any], report_scope: str) -> pd.Da
     return df
 
 
+def is_rate_limit_message(message: str) -> bool:
+    text = message.lower()
+    patterns = [
+        "rate limit",
+        "requests per day",
+        "call frequency",
+        "please subscribe",
+        "premium plans",
+    ]
+    return any(pattern in text for pattern in patterns)
+
+
+def build_query_cache_key(function_name: str, params: dict[str, str]) -> str:
+    normalized_params = "|".join(f"{k}={v}" for k, v in sorted(params.items()))
+    return f"{function_name}|{normalized_params}"
+
+
 def safe_query(function_name: str, **params: str) -> dict[str, Any] | None:
+    fallback_cache = st.session_state.setdefault("query_fallback_cache", {})
+    cache_key = build_query_cache_key(function_name, params)
+
     try:
-        return av_query(function_name, **params)
+        payload = av_query(function_name, **params)
+        fallback_cache[cache_key] = payload
+        return payload
     except requests.RequestException as exc:
         st.error(f"Errore di rete verso Alpha Vantage: {exc}")
     except RuntimeError as exc:
-        st.warning(
-            "Alpha Vantage ha restituito un messaggio: "
-            f"{exc}\n\nSuggerimento: prova piu' tardi o riduci le richieste."
-        )
+        if is_rate_limit_message(str(exc)):
+            if cache_key in fallback_cache:
+                st.warning(
+                    "Limite giornaliero di richieste Alpha Vantage superato. "
+                    "Verranno utilizzati, se presenti, i dati in cache."
+                )
+                return fallback_cache[cache_key]
+            st.warning(
+                "Limite giornaliero di richieste Alpha Vantage superato. "
+                "Non ci sono dati in cache per questa richiesta."
+            )
+        else:
+            st.warning(
+                "Alpha Vantage ha restituito un messaggio: "
+                f"{exc}\n\nSuggerimento: prova piu' tardi o riduci le richieste."
+            )
     except Exception as exc:
         st.error(f"Errore inatteso: {exc}")
     return None
