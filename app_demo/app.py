@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import os
 from pathlib import Path
 from typing import Any
 
@@ -13,8 +14,22 @@ API_KEY_PATH = Path(__file__).resolve().parent.parent / "api_key.txt"
 
 
 def load_api_key() -> str:
+    env_key = os.getenv("ALPHAVANTAGE_API_KEY", "").strip()
+    if env_key:
+        return env_key
+
+    try:
+        secret_key = str(st.secrets.get("ALPHAVANTAGE_API_KEY", "")).strip()
+    except Exception:
+        secret_key = ""
+    if secret_key:
+        return secret_key
+
     if not API_KEY_PATH.exists():
-        raise FileNotFoundError(f"File API key non trovato: {API_KEY_PATH}")
+        raise FileNotFoundError(
+            "API key non trovata. Imposta `ALPHAVANTAGE_API_KEY` nei secrets "
+            f"Streamlit o crea il file locale: {API_KEY_PATH}"
+        )
     key = API_KEY_PATH.read_text(encoding="utf-8").strip()
     if not key:
         raise ValueError("Il file api_key.txt e' vuoto.")

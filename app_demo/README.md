@@ -42,3 +42,20 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 - Se i dati sembrano fermi, usa il pulsante `Aggiorna dati (svuota cache)`.
 - Con piano free Alpha Vantage potresti ricevere messaggi di limite chiamate.
 - Non avviare con `python app.py`: genera molti warning Streamlit (`missing ScriptRunContext`).
+
+## Deploy su Streamlit Community Cloud
+
+- Repo: `https://github.com/idrive72/alfavantage-demo`
+- Main file path: `app_demo/app.py`
+- Python dependencies: `app_demo/requirements.txt`
+
+Configura la chiave API in `Settings -> Secrets`:
+
+```toml
+ALPHAVANTAGE_API_KEY = "la_tua_chiave"
+```
+
+L'app usa questa priorita' per leggere la chiave:
+1. Variabile ambiente `ALPHAVANTAGE_API_KEY`
+2. `st.secrets["ALPHAVANTAGE_API_KEY"]` (cloud)
+3. file locale `../api_key.txt`
