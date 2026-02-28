@@ -256,7 +256,17 @@ def main() -> None:
         st.stop()
 
     st.sidebar.header("Controlli")
-    symbol = st.sidebar.text_input("Ticker azionario", value="IBM").strip().upper()
+    ticker_examples = ["IBM", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "Inserimento manuale"]
+    selected_ticker = st.sidebar.selectbox("Ticker esempio", options=ticker_examples, index=0)
+    manual_symbol = st.sidebar.text_input("Ticker azionario (manuale, opzionale)", value="")
+
+    if manual_symbol.strip():
+        symbol = manual_symbol.strip().upper()
+    elif selected_ticker != "Inserimento manuale":
+        symbol = selected_ticker
+    else:
+        symbol = ""
+
     period = st.sidebar.slider("SMA period", min_value=5, max_value=60, value=20, step=1)
     from_symbol = st.sidebar.text_input("FX from", value="EUR").strip().upper()
     to_symbol = st.sidebar.text_input("FX to", value="USD").strip().upper()
