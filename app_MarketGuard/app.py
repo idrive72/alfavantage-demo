@@ -342,8 +342,9 @@ def render_home() -> None:
     st.markdown(
         """
         <div class="mg-panel">
-          <b>Perche questa demo:</b> mostrare un servizio pronto da proporre a collaboratori o clienti
-          che vogliono monitorare rischio operativo legato a FX, materie prime e notizie di mercato.
+          <b>Obiettivo della demo:</b> mostrare come i dati Alpha Vantage possano diventare un servizio
+          operativo vendibile (monitoraggio rischio, alert e supporto decisionale) per PMI, consulenti
+          e team finance/procurement.
         </div>
         """,
         unsafe_allow_html=True,
@@ -351,23 +352,49 @@ def render_home() -> None:
 
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown("### Moduli implementati")
+        st.markdown("### Parti gia implementate")
         st.markdown(
-            "- Monitor live FX e commodity (trend + variazioni)\n"
-            "- Alert operativi su soglie di movimento\n"
-            "- Scenario planner per esposizione in USD\n"
-            "- Feed News + Sentiment per watchlist ticker\n"
-            "- Fallback cache/demo in caso di rate-limit"
+            "- `Monitor Live`: trend e variazioni su FX e commodity\n"
+            "- `Scenari`: impatto stimato dell'FX su esposizione mensile USD\n"
+            "- `Alert Feed`: regole base su soglie + news/sentiment\n"
+            "- `AI + MCP`: blueprint di integrazione per copilota decisionale\n"
+            "- Gestione robusta rate-limit: cache + fallback demo"
         )
     with c2:
-        st.markdown("### Evoluzioni possibili")
+        st.markdown("### Parti da implementare")
         st.markdown(
-            "- Report PDF automatico settimanale\n"
-            "- Invio alert su Telegram/Email/Slack\n"
-            "- Regole avanzate con priorita e escalation\n"
-            "- Multi-tenant per clienti diversi\n"
-            "- Copilota AI via MCP per Q&A finanziario"
+            "- Report periodici automatici (PDF + storico decisioni)\n"
+            "- Alerting multi-canale (Telegram, Email, Slack, webhook)\n"
+            "- Rule engine avanzato (priorita, escalation, finestre orarie)\n"
+            "- Multi-tenant (clienti, ruoli, viste separate)\n"
+            "- Audit trail e KPI di efficacia degli alert"
         )
+
+    st.markdown("### Come usare questi dati per creare servizi da vendere")
+    st.markdown(
+        "- **Risk & Alert Desk in abbonamento**: monitor FX/commodity + alert + report settimanale\n"
+        "- **Briefing News & Sentiment**: rassegna automatica per management con punti di attenzione\n"
+        "- **Scenario Service**: simulazioni impatto costi/margini su soglie critiche\n"
+        "- **Data Gateway/API Service**: endpoint normalizzati, cache, SLA e integrazione per software house"
+    )
+
+    st.markdown("### Come costruire strategie in modo serio")
+    st.markdown(
+        "- Definire obiettivo: copertura rischio, non previsione perfetta\n"
+        "- Usare regole semplici e tracciabili (soglie, trend, volatilita, sentiment)\n"
+        "- Backtest su storico con metriche chiare (falsi positivi, tempo di risposta, impatto)\n"
+        "- Validare con approccio a step: shadow mode -> alert passivi -> attivazione operativa\n"
+        "- Integrare AI come supporto decisionale, non come sostituto del controllo umano"
+    )
+
+    st.markdown("### Moduli aggiuntivi consigliati")
+    st.markdown(
+        "- Hedging Assistant (proposte copertura per fascia di rischio)\n"
+        "- Treasury Cockpit (cash, esposizioni, scadenze e stress test)\n"
+        "- Portfolio Monitor (drawdown, correlazioni, esposizione settoriale)\n"
+        "- CRM/ERP Connector (collegamento ordini, margini e alert economici)\n"
+        "- Compliance Layer (log decisioni, versionamento regole, export audit)"
+    )
 
     st.markdown(
         """
